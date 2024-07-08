@@ -243,9 +243,8 @@ async function run() {
             const payment = req.body;
             const paymentResult = await paymentCollection.insertOne(payment);
 
-            // carefully delete each item from the cart
+            //  carefully delete each item from the cart
             console.log('payment info', payment);
-
             const query = {
                 _id: {
                     $in: payment.cartIds.map(id => new ObjectId(id))
@@ -255,26 +254,90 @@ async function run() {
             const deleteResult = await cartCollection.deleteMany(query);
 
             res.send({ paymentResult, deleteResult });
-        });
+        })
 
 
-        // app.post('/payments', async (req, res) => {
-        //     const payment = req.body;
-        //     const paymentResult = await paymentCollection.insertOne(payment);
 
-        //     // caredully delete each item from the cart
-        //     console.log('payment info', payment);
+        // stats or anylitics
 
-        //     const query = {
-        //         _id: {
-        //             $in: payment.cartIds.map(() => new ObjectId(id))
-        //         }
-        //     }
+        app.get('/admin-stats', async (req, res) => {
+            const users = await userCollection.estimatedDocumentCount();
+            const menuItems = await menuCollection.estimatedDocumentCount();
+            const orders = await paymentCollection.estimatedDocumentCount();
 
-        //     const deleteResult = await cartCollection.deleteMany(query)
+            // this is  not the best way
+            // const payments = await paymentCollection.find().toArray();
+            // const revenue = payments.reduce((total, payment) => total + payment.price, 0)
 
-        //     res.send(paymentResult, deleteResult)
-        // })
+            const result = await paymentCollection.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: {
+                            $sum: '$price'
+                        }
+                    }
+                }
+            ]).toArray();
+
+            // order 
+            /**
+             * -----------------------------
+             * NON_Efficient way
+             * ------------------------------
+             * 1. loand all the payments
+             * 2.for every menuItemIds (which is an array), go find the item  fromMenu collection 
+             * 3.for every item in the menu collection that you  found from a  payment entry (document)
+             */
+
+            // useing aggregate pipeline 
+
+            app.get('/order-stats', async (req, res) => {
+
+                const result = await paymentCollection.aggregate([
+                    {
+                        $unwind: 'menuIds'
+                    },
+                    {
+                        $lookup: {
+                            from: 'menu',
+                            localField: 'menuIds',
+                            foreignField: '_id',
+                            as: ''
+                        }
+                    },
+                    {
+                        $unwind: 'menuItems'
+                    },
+                    {
+                        $group: {
+                            _id: '$menuItem.category',
+                            quantity: { $sum: 1 },
+                            revenue: { $sum: '$menuItem.price' }
+                        }
+                    }
+
+                ]).toArray()
+
+                res.send(result)
+            })
+
+
+
+
+
+
+            const revenue = result.length > 0 ? result[0].totalRevenue : 0;
+
+            res.send({
+                users,
+                menuItems,
+                orders,
+                revenue
+            })
+        })
+
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
