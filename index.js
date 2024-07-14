@@ -29,7 +29,7 @@ async function run() {
     try {
 
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
 
         const userCollection = client.db("bossDB").collection("users");
@@ -63,7 +63,7 @@ async function run() {
                 next();
             })
         }
-        //------------ use verify admin  after verifyToken ---------------------------------  
+        //------------ use verify admin after verifyToken ---------------------------------  
 
         const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email;
@@ -280,53 +280,6 @@ async function run() {
                 }
             ]).toArray();
 
-            // order 
-            /**
-             * -----------------------------
-             * NON_Efficient way
-             * ------------------------------
-             * 1. loand all the payments
-             * 2.for every menuItemIds (which is an array), go find the item  fromMenu collection 
-             * 3.for every item in the menu collection that you  found from a  payment entry (document)
-             */
-
-            // useing aggregate pipeline 
-
-            app.get('/order-stats', async (req, res) => {
-
-                const result = await paymentCollection.aggregate([
-                    {
-                        $unwind: 'menuIds'
-                    },
-                    {
-                        $lookup: {
-                            from: 'menu',
-                            localField: 'menuIds',
-                            foreignField: '_id',
-                            as: ''
-                        }
-                    },
-                    {
-                        $unwind: 'menuItems'
-                    },
-                    {
-                        $group: {
-                            _id: '$menuItem.category',
-                            quantity: { $sum: 1 },
-                            revenue: { $sum: '$menuItem.price' }
-                        }
-                    }
-
-                ]).toArray()
-
-                res.send(result)
-            })
-
-
-
-
-
-
             const revenue = result.length > 0 ? result[0].totalRevenue : 0;
 
             res.send({
@@ -335,13 +288,66 @@ async function run() {
                 orders,
                 revenue
             })
-        })
+        });
 
+        // order 
+        /**
+         * -----------------------------
+         * NON_Efficient way
+         * ------------------------------
+         * 1. loand all the payments
+         * 2.for every menuItemIds (which is an array), go find the item  fromMenu collection 
+         * 3.for every item in the menu collection that you  found from a  payment entry (document)
+         */
+
+        // useing aggregate pipeline 
+
+        app.get('/order-stats', async (req, res) => {
+
+            const result = await paymentCollection.aggregate([
+                {
+                    $unwind: '$menuIds'
+                },
+
+                {
+                    $lookup: {
+                        from: 'menu',
+                        localField: 'menuIds',
+                        foreignField: '_id',
+                        as: 'menuItems'
+                    }
+                },
+
+                {
+                    $unwind: '$menuItems'
+                },
+
+                {
+                    $group: {
+                        _id: '$menuItems.category',
+                        quantity: { $sum: 1 },
+                        revenue: { $sum: '$menuItems.price' }
+                    }
+                },
+
+                {
+                    $project: {
+                        _id: 0,
+                        category: '$_id',
+                        quantity: '$quantity',
+                        revenue: '$revenue'
+                    }
+                }
+
+            ]).toArray();
+
+            res.send(result)
+        });
 
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
